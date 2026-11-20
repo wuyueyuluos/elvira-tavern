@@ -16,6 +16,15 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+val hasReleaseKeystore = listOf("keyAlias", "password", "storeFile")
+    .all { !keystoreProperties.getProperty(it).isNullOrBlank() }
+
 android {
     compileSdk = 36
     namespace = "com.tauritavern.client"
@@ -28,21 +37,17 @@ android {
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
     signingConfigs {
-        create("release") {
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            val keystoreProperties = Properties()
-            if (keystorePropertiesFile.exists()) {
-                keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+        if (hasReleaseKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("password")
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("password")
+                // Some OEM installers read the v1 (JAR) certificate even though Android 7+ ignores it.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
-
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["password"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["password"] as String
-            // Some OEM installers read the v1 (JAR) certificate even though Android 7+ ignores it.
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
         }
     }
     buildTypes {
@@ -51,7 +56,8 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+            packaging {
+                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
@@ -60,7 +66,9 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 *fileTree(".") {
                     include("**/*.pro")
