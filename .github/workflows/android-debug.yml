@@ -1,0 +1,111 @@
+name: Android Debug APK
+
+on:
+  push:
+    branches:
+      - elvira-dev
+    paths:
+      - ".github/workflows/android-debug.yml"
+      - "src/**"
+      - "src-tauri/**"
+      - "packages/**"
+      - "scripts/**"
+      - "default/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TAURITAVERN_BUILD_BRANCH: elvira-dev
+  TAURITAVERN_BUILD_REVISION: ${{ github.sha }}
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Install Android host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+          cache-dependency-path: |
+            src-tauri/crates/tauritavern/gen/android/**/*.gradle*
+            src-tauri/crates/tauritavern/gen/android/**/gradle-wrapper.properties
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          link-to-sdk: true
+
+      - name: Configure Android compiler
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          sysroot="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          {
+            echo "AR_aarch64_linux_android=$toolchain/llvm-ar"
+            echo "CC_aarch64_linux_android=$toolchain/aarch64-linux-android24-clang"
+            echo "AR_armv7_linux_androideabi=$toolchain/llvm-ar"
+            echo "CC_armv7_linux_androideabi=$toolchain/armv7a-linux-androideabi24-clang"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=--sysroot=$sysroot"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi=--sysroot=$sysroot"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@v2
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build unsigned Debug APKs
+        uses: tauri-apps/tauri-action@v1
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          TAURITAVERN_SKIP_WEB_BUILD: "0"
+        with:
+          projectPath: src-tauri/crates/tauritavern
+          tauriScript: node ../../../scripts/tauri-app.mjs
+          mobile: android
+          args: --verbose --debug --apk --split-per-abi --target aarch64 armv7
+          uploadWorkflowArtifacts: true
+          uploadPlainBinary: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          workflowArtifactNamePattern: "ElviraTavern-debug-[platform]-[arch]-[bundle]"
