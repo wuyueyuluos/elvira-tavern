@@ -59,7 +59,7 @@
 #completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
     align-items: center;
     padding: 0.5em;
-    border: 1px solid var(--SmartThemeBorderColor);
+    border: 1px solid var(--ui-color-sec, var(--SmartThemeBorderColor)) !important;
     border-radius: var(--border-radius-medium, 8px);
     background-color: var(--SmartThemeBlurTintColor);
     --completion-prompt-manager-handle-column: 0px;
